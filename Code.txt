@@ -1,0 +1,210 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 05.02.2024 22:27:23
+// Design Name: 
+// Module Name: integrate
+// Project Name: 
+// Target Devices: 
+// Tool Versions: 
+// Description: 
+// 
+// Dependencies: 
+// 
+// Revision:
+// Revision 0.01 - File Created
+// Additional Comments:
+// 
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module integrate(clk,A,B,out);
+input clk;
+input [31:0]A,B;
+output [31:0]out;
+
+wire [31:0]res1,res2;
+multiplier m1(clk,A,B,res1);
+register a1(out,res2);
+adder f1(clk,res1,res2,out);
+
+
+endmodule
+
+
+
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module register(A,out);
+input [31:0]A;
+output reg[31:0]out=0;
+always@(A)
+begin
+out = A;
+end
+endmodule
+
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module multiplier(clk,A,B,out);
+input clk;
+input [31:0]A,B;
+output reg [31:0]out;
+reg s1,s2,s_out;
+reg [7:0]e1,e2,e_out;
+reg [22:0]m1,m2,m_out;
+reg zero_out;
+reg [47:0]mul; 
+reg x;  
+
+always@(posedge clk)
+begin
+    {s1,e1,m1}={A[31],A[30:23],A[22:0]};
+    {s2,e2,m2}={B[31],B[30:23],B[22:0]};
+    zero_out = ({e1,m1}==0)|({e2,m2}==0); 
+    s_out = s1 ^ s2;
+    mul = {1'b1,m1} * {1'b1,m2};
+    m_out = (mul[47]==1)?mul[46:24]:mul[45:23];
+    x = (mul[47]==1)?1'b1:1'b0;
+    e_out = e1 + e2 + x - 127;
+     out = (zero_out==1)?0:{s_out,e_out,m_out};
+   end
+
+
+endmodule
+
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module adder(clk,A,B,out);
+input clk;
+input [31:0]A,B;
+output reg [31:0]out=0;
+reg s1,s2,s_final;
+reg [7:0]e1,e2,e_final;
+reg [22:0]m1,m2;
+reg [7:0]exp_diff=0;
+reg [24:0]m_final=0;
+
+reg count=0;
+reg [4:0]index=23;
+reg [4:0]i=23;
+
+always@(posedge clk)
+begin
+s1=A[31];s2=B[31];
+e1=A[30:23];e2=B[30:23];
+m1=A[22:0];m2=B[22:0];
+
+if(e1==e2)
+    begin
+    e_final=e1;
+    if(s1==s2)
+        begin
+        m_final = {1'b1,m1}+{1'b1,m2};
+        s_final = s1;
+        out[30:23]=(m_final[24]==1'b1)?e_final+1:e_final;
+        out[22:0]=(m_final[24]==1'b1)?m_final[23:1]:m_final[22:0];  
+                end
+    else
+        begin
+        m_final = (m1>m2)?{1'b1,m1}-{1'b1,m2}:{1'b1,m2}-{1'b1,m1};
+        s_final = (m1>m2)?s1:s2;
+        count=0;
+        index=23;
+        for(i=23;i>0;i=i-1)
+            begin
+            if(m_final[i]==1 && count==0)
+                begin
+                index=i;
+                count=count+1;
+                end
+            end
+         m_final[23:0]=m_final[23:0]<<(23-index);
+         out[22:0]=m_final[22:0];
+         out[30:23]=e_final-(23-index);
+        end 
+    end
+else
+    begin
+    exp_diff=(e1>e2)?(e1-e2):(e2-e1);
+    e_final=(e1>e2)?e1:e2;
+    if(s1==s2)
+        begin
+        if(A[30:0]>B[30:0])
+            begin
+            m2={1'b1,m2[22:0]}>>exp_diff;
+            m_final = {1'b1,m1}+{1'b0,m2};
+            end
+        else
+            begin
+            m1={1'b1,m1[22:0]}>>exp_diff;
+            m_final = {1'b0,m1}+{1'b1,m2};
+            end
+        s_final = s1;
+        out[30:23]=(m_final[24]==1'b1)?e_final+1:e_final;
+        out[22:0]=(m_final[24]==1'b1)?m_final[23:1]:m_final[22:0]; 
+        end
+    else
+        begin
+        if(A[30:0]>B[30:0])
+            begin
+            m2={1'b1,m2[22:0]}>>exp_diff;
+            m_final = {1'b1,m1}-{1'b0,m2};
+            s_final = s1;
+            end
+        else
+            begin
+            m1={1'b1,m1[22:0]}>>exp_diff;
+            m_final = {1'b1,m2}-{1'b0,m1};
+            s_final = s2;
+            end
+        count=0;
+        index=23;
+        for(i=23;i>0;i=i-1)
+            begin
+            if(m_final[i]==1 && count==0)
+                begin
+                index=i;
+                count=count+1;
+                end
+            end
+         m_final[23:0]=m_final[23:0]<<(23-index);
+         out[22:0]=m_final[22:0];
+         out[30:23]=e_final-(23-index);
+         end 
+      end 
+   
+out[31]=s_final;
+end
+endmodule
+
+
+//////////////////////////////////////////////////////////////////////////////////
+
+
+module testbench();
+reg clk;
+reg [31:0]A,B;
+wire [31:0]out;
+
+integrate mac1(clk,A,B,out);
+
+initial clk=1;
+always #5 clk=~clk;
+
+initial
+begin
+ A=32'b0_10000000_01000000000000000000000; B=32'b0_01111111_10000000000000000000000;
+//#10 A=32'b0_01111111_10000000000000000000000; B=32'b1_01111111_10000000000000000000000;
+#10 A=32'b1_10000001_01100000000000000000000; B=32'b0_10000001_00100000000000000000000;
+#10 A=32'b1_10000001_01100000000000000000000; B=32'b0_10000001_00100000000000000000000;
+#10 A=0; B=0;
+#60 $finish;
+end
+
+endmodule
